@@ -1,6 +1,6 @@
 [package]
 name = "neli-wifi"
-version = "0.5.1"
+version = "0.6.0"
 authors = ["eonm <eon.mathis@gmail.com>", "Max Verevkin <maxxverrr@gmail.com>"]
 edition = "2021"
 description = "Communicate with nl80211"
