@@ -6,6 +6,7 @@ use neli::attr::Attribute;
 use neli::err::DeError;
 
 /// A struct representing a BSS (Basic Service Set)
+#[non_exhaustive]
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct Bss {
     /// BSSID
@@ -72,7 +73,7 @@ impl fmt::Debug for Bss {
             .field("status", &self.status)
             .field("signal", &self.signal)
             .field("information_elements", &"...")
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

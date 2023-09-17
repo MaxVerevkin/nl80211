@@ -4,6 +4,7 @@ use neli::attr::Attribute;
 use neli::err::DeError;
 
 /// A struct representing a wifi interface
+#[non_exhaustive]
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Interface {
     /// A netlink interface index. This index is used to fetch extra information with nl80211

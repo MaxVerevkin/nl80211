@@ -4,6 +4,7 @@ use neli::attr::Attribute;
 use neli::err::DeError;
 
 /// A struct representing a remote station (Access Point)
+#[non_exhaustive]
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Station {
     /// Signal strength average (dBm)
