@@ -27,56 +27,6 @@ impl Socket {
         Ok(Self { sock, family_id })
     }
 
-    fn get_info<T>(&mut self, interface_index: i32, cmd: Nl80211Cmd) -> Result<T, NlError>
-    where
-        T: std::default::Default + for<'a> TryFrom<Attrs<'a, Nl80211Attr>, Error = DeError>,
-    {
-        let msghdr = Genlmsghdr::<Nl80211Cmd, Nl80211Attr>::new(cmd, NL_80211_GENL_VERSION, {
-            let mut attrs = GenlBuffer::new();
-            attrs.push(
-                Nlattr::new(false, false, Nl80211Attr::AttrIfindex, interface_index).unwrap(),
-            );
-            attrs
-        });
-
-        let nlhdr = {
-            let len = None;
-            let nl_type = self.family_id;
-            let flags = NlmFFlags::new(&[NlmF::Request, NlmF::Dump]);
-            let seq = None;
-            let pid = None;
-            let payload = NlPayload::Payload(msghdr);
-            Nlmsghdr::new(len, nl_type, flags, seq, pid, payload)
-        };
-
-        self.sock.send(nlhdr)?;
-
-        let iter = self
-            .sock
-            .iter::<Nlmsg, Genlmsghdr<Nl80211Cmd, Nl80211Attr>>(false);
-        let mut retval = None;
-        for response in iter {
-            let response = response.unwrap();
-            match response.nl_type {
-                Nlmsg::Noop => (),
-                Nlmsg::Error => panic!("Error"),
-                Nlmsg::Done => break,
-                _ => {
-                    retval = Some(
-                        response
-                            .nl_payload
-                            .get_payload()
-                            .unwrap()
-                            .get_attr_handle()
-                            .try_into()?,
-                    );
-                }
-            };
-        }
-
-        Ok(retval.unwrap_or_default())
-    }
-
     fn get_info_vec<T>(
         &mut self,
         interface_index: Option<i32>,
@@ -140,12 +90,11 @@ impl Socket {
     /// ```no_run
     /// # use neli_wifi::Socket;
     /// # use std::error::Error;
-    ///
     /// # fn main() -> Result<(), Box<dyn Error>>{
-    ///     let wifi_interfaces = Socket::connect()?.get_interfaces_info();
-    ///     for wifi_interface in wifi_interfaces? {
-    ///         println!("{:#?}", wifi_interface);
-    ///     }
+    /// let wifi_interfaces = Socket::connect()?.get_interfaces_info()?;
+    /// for wifi_interface in wifi_interfaces {
+    ///     println!("{:#?}", wifi_interface);
+    /// }
     /// #   Ok(())
     /// # }
     ///```
@@ -160,23 +109,22 @@ impl Socket {
     /// ```no_run
     /// # use neli_wifi::Socket;
     /// # use std::error::Error;
-    ///
     /// # fn main() -> Result<(), Box<dyn Error>>{
-    ///   // First of all we need to get wifi interface information to get more data
-    ///   let wifi_interfaces = Socket::connect()?.get_interfaces_info();
-    ///   for wifi_interface in wifi_interfaces? {
+    /// // First of all we need to get wifi interface information to get more data
+    /// let wifi_interfaces = Socket::connect()?.get_interfaces_info()?;
+    /// for wifi_interface in wifi_interfaces {
     ///     if let Some(index) = wifi_interface.index {
-    ///
-    ///       // Then for each wifi interface we can fetch station information
-    ///       let station_info = Socket::connect()?.get_station_info(index)?;
-    ///           println!("{:#?}", station_info);
-    ///       }
-    ///     }
+    ///         // Then for each wifi interface we can fetch station information
+    ///         for station_info in Socket::connect()?.get_station_info(index)? {
+    ///             println!("{:#?}", station_info);
+    ///         }
+    ///      }
+    /// }
     /// #   Ok(())
     /// # }
     ///```
-    pub fn get_station_info(&mut self, interface_index: i32) -> Result<Station, NlError> {
-        self.get_info(interface_index, Nl80211Cmd::CmdGetStation)
+    pub fn get_station_info(&mut self, interface_index: i32) -> Result<Vec<Station>, NlError> {
+        self.get_info_vec(Some(interface_index), Nl80211Cmd::CmdGetStation)
     }
 
     pub fn get_bss_info(&mut self, interface_index: i32) -> Result<Vec<Bss>, NlError> {
