@@ -1,10 +1,12 @@
+use std::fmt;
+
 use crate::attr::{Attrs, Nl80211Attr, Nl80211Bss};
 
 use neli::attr::Attribute;
 use neli::err::DeError;
 
 /// A struct representing a BSS (Basic Service Set)
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Default, Clone, PartialEq, Eq)]
 pub struct Bss {
     /// BSSID
     pub bssid: Option<Vec<u8>>,
@@ -57,6 +59,20 @@ impl TryFrom<Attrs<'_, Nl80211Attr>> for Bss {
             }
         }
         Ok(res)
+    }
+}
+
+impl fmt::Debug for Bss {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Bss")
+            .field("bssid", &self.bssid)
+            .field("frequency", &self.frequency)
+            .field("beacon_interval", &self.beacon_interval)
+            .field("seen_ms_ago", &self.seen_ms_ago)
+            .field("status", &self.status)
+            .field("signal", &self.signal)
+            .field("information_elements", &"...")
+            .finish()
     }
 }
 
