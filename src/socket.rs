@@ -77,7 +77,7 @@ impl Socket {
         for response in receive_handle {
             let response: Nlmsghdr<Nlmsg, Genlmsghdr<Nl80211Cmd, Nl80211Attr, NoUserHeader>> =
                 response.unwrap();
-            match Nlmsg::from(*response.nl_type()) {
+            match *response.nl_type() {
                 Nlmsg::Noop => (),
                 Nlmsg::Error => panic!("Error"),
                 Nlmsg::Done => break,
