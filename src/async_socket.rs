@@ -1,101 +1,104 @@
+use std::error::Error;
+
 use crate::Attrs;
 use crate::Bss;
 use crate::Interface;
 use crate::Nl80211Attr;
 use crate::Nl80211Cmd;
-use crate::Socket;
 use crate::Station;
+use crate::NL_80211_GENL_NAME;
 use crate::NL_80211_GENL_VERSION;
+use neli::consts::socket::NlFamily;
 use neli::err::DeError;
 
-use neli::consts::genl::{CtrlAttr, CtrlCmd};
-use neli::consts::{nl::GenlId, nl::NlmF, nl::NlmFFlags, nl::Nlmsg};
-use neli::err::NlError;
-use neli::genl::{Genlmsghdr, Nlattr};
+use neli::consts::{nl::NlmF, nl::Nlmsg};
+use neli::genl::AttrTypeBuilder;
+use neli::genl::Genlmsghdr;
+use neli::genl::GenlmsghdrBuilder;
+use neli::genl::NlattrBuilder;
+use neli::genl::NoUserHeader;
 use neli::nl::{NlPayload, Nlmsghdr};
-use neli::socket::tokio::NlSocket;
+use neli::router::asynchronous::NlRouter;
 use neli::types::GenlBuffer;
+use neli::utils::Groups;
 
 /// A generic netlink socket to send commands and receive messages
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 pub struct AsyncSocket {
-    sock: NlSocket,
+    router: NlRouter,
     family_id: u16,
-}
-
-impl TryFrom<Socket> for AsyncSocket {
-    type Error = std::io::Error;
-
-    fn try_from(from: Socket) -> Result<Self, Self::Error> {
-        Ok(Self {
-            sock: NlSocket::new(from.sock)?,
-            family_id: from.family_id,
-        })
-    }
 }
 
 impl AsyncSocket {
     /// Create a new nl80211 socket with netlink
-    pub fn connect() -> Result<Self, NlError<GenlId, Genlmsghdr<CtrlCmd, CtrlAttr>>> {
-        Ok(Socket::connect()?.try_into()?)
+    pub async fn connect() -> Result<Self, Box<dyn Error>> {
+        let (router, _) = NlRouter::connect(NlFamily::Generic, None, Groups::empty()).await?;
+        let family_id = router.resolve_genl_family(NL_80211_GENL_NAME).await?;
+        Ok(Self { router, family_id })
     }
 
     async fn get_info_vec<T>(
         &mut self,
         interface_index: Option<i32>,
         cmd: Nl80211Cmd,
-    ) -> Result<Vec<T>, NlError>
+    ) -> Result<Vec<T>, Box<dyn Error>>
     where
         T: for<'a> TryFrom<Attrs<'a, Nl80211Attr>, Error = DeError>,
     {
-        let msghdr = Genlmsghdr::<Nl80211Cmd, Nl80211Attr>::new(cmd, NL_80211_GENL_VERSION, {
-            let mut attrs = GenlBuffer::new();
-            if let Some(interface_index) = interface_index {
-                attrs.push(
-                    Nlattr::new(false, false, Nl80211Attr::AttrIfindex, interface_index).unwrap(),
-                );
-            }
-            attrs
-        });
+        let msghdr = GenlmsghdrBuilder::<Nl80211Cmd, Nl80211Attr, NoUserHeader>::default()
+            .cmd(cmd)
+            .version(NL_80211_GENL_VERSION)
+            .attrs({
+                let mut attrs = GenlBuffer::new();
+                if let Some(interface_index) = interface_index {
+                    attrs.push(
+                        NlattrBuilder::default()
+                            .nla_type(
+                                AttrTypeBuilder::default()
+                                    .nla_type(Nl80211Attr::AttrIfindex)
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .nla_payload(interface_index)
+                            .build()
+                            .unwrap(),
+                    );
+                }
+                attrs
+            })
+            .build()
+            .unwrap();
 
-        let nlhdr = {
-            let len = None;
-            let nl_type = self.family_id;
-            let flags = NlmFFlags::new(&[NlmF::Request, NlmF::Dump]);
-            let seq = None;
-            let pid = None;
-            let payload = NlPayload::Payload(msghdr);
-            Nlmsghdr::new(len, nl_type, flags, seq, pid, payload)
-        };
+        let mut receive_handle = self
+            .router
+            .send::<_, _, Nlmsg, Genlmsghdr<Nl80211Cmd, Nl80211Attr, NoUserHeader>>(
+                self.family_id,
+                NlmF::REQUEST | NlmF::DUMP,
+                NlPayload::Payload(msghdr),
+            )
+            .await?;
 
-        self.sock.send(&nlhdr).await?;
-
-        let mut buf = Vec::new();
         let mut retval = Vec::new();
 
-        loop {
-            let res = self
-                .sock
-                .recv::<Nlmsg, Genlmsghdr<Nl80211Cmd, Nl80211Attr>>(&mut buf)
-                .await?;
-            for response in res {
-                match response.nl_type {
-                    Nlmsg::Noop => (),
-                    Nlmsg::Error => panic!("Error"),
-                    Nlmsg::Done => return Ok(retval),
-                    _ => {
-                        retval.push(
-                            response
-                                .nl_payload
-                                .get_payload()
-                                .unwrap()
-                                .get_attr_handle()
-                                .try_into()?,
-                        );
-                    }
-                };
+        while let Some(response) = receive_handle.next().await {
+            let response: Nlmsghdr<Nlmsg, Genlmsghdr<Nl80211Cmd, Nl80211Attr, NoUserHeader>> =
+                response.unwrap();
+            match Nlmsg::from(*response.nl_type()) {
+                Nlmsg::Noop => (),
+                Nlmsg::Error => panic!("Error"),
+                Nlmsg::Done => break,
+                _ => retval.push(
+                    response
+                        .get_payload()
+                        .unwrap()
+                        .attrs()
+                        .get_attr_handle()
+                        .try_into()?,
+                ),
             }
         }
+
+        Ok(retval)
     }
 
     /// Get information for all your wifi interfaces
@@ -107,13 +110,13 @@ impl AsyncSocket {
     /// # use std::error::Error;
     /// # async fn test() -> Result<(), Box<dyn Error>>{
     /// let wifi_interfaces = AsyncSocket::connect()?.get_interfaces_info().await?;
-    /// for wifi_interface in wifi_interfaces {
+    /// for wifi_interface in wifi_interfacNlErrores {
     ///     println!("{:#?}", wifi_interface);
     /// }
     /// #   Ok(())
     /// # };
     ///```
-    pub async fn get_interfaces_info(&mut self) -> Result<Vec<Interface>, NlError> {
+    pub async fn get_interfaces_info(&mut self) -> Result<Vec<Interface>, Box<dyn Error>> {
         self.get_info_vec(None, Nl80211Cmd::CmdGetInterface).await
     }
 
@@ -142,20 +145,20 @@ impl AsyncSocket {
     pub async fn get_station_info(
         &mut self,
         interface_index: i32,
-    ) -> Result<Vec<Station>, NlError> {
+    ) -> Result<Vec<Station>, Box<dyn Error>> {
         self.get_info_vec(Some(interface_index), Nl80211Cmd::CmdGetStation)
             .await
     }
 
-    pub async fn get_bss_info(&mut self, interface_index: i32) -> Result<Vec<Bss>, NlError> {
+    pub async fn get_bss_info(&mut self, interface_index: i32) -> Result<Vec<Bss>, Box<dyn Error>> {
         self.get_info_vec(Some(interface_index), Nl80211Cmd::CmdGetScan)
             .await
     }
 }
 
-impl From<AsyncSocket> for NlSocket {
+impl From<AsyncSocket> for NlRouter {
     /// Returns the underlying generic netlink socket
     fn from(sock: AsyncSocket) -> Self {
-        sock.sock
+        sock.router
     }
 }

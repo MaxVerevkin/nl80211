@@ -10,11 +10,11 @@ keywords = ["wifi", "neli", "netlink", "nl80211"]
 
 [features]
 default = []
-async = ["neli/async"]
+async = ["neli/async", "neli/tokio"]
 
 [dependencies]
-neli = "0.6.0"
-neli-proc-macros = "0.1.0"
+neli = { git = "https://github.com/jbaublitz/neli.git" }
+neli-proc-macros = { git = "https://github.com/jbaublitz/neli.git", version = "0.2.0-rc2" }
 
 [dev-dependencies]
 neli-wifi = { path = ".", features = ["async"] }
