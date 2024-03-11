@@ -109,8 +109,8 @@ impl AsyncSocket {
     /// # use neli_wifi::AsyncSocket;
     /// # use std::error::Error;
     /// # async fn test() -> Result<(), Box<dyn Error>>{
-    /// let wifi_interfaces = AsyncSocket::connect()?.get_interfaces_info().await?;
-    /// for wifi_interface in wifi_interfacNlErrores {
+    /// let wifi_interfaces = AsyncSocket::connect().await?.get_interfaces_info().await?;
+    /// for wifi_interface in wifi_interfaces {
     ///     println!("{:#?}", wifi_interface);
     /// }
     /// #   Ok(())
@@ -128,7 +128,7 @@ impl AsyncSocket {
     /// # use neli_wifi::AsyncSocket;
     /// # use std::error::Error;
     /// # async fn test() -> Result<(), Box<dyn Error>> {
-    /// let mut socket = AsyncSocket::connect()?;
+    /// let mut socket = AsyncSocket::connect().await?;
     /// // First of all we need to get wifi interface information to get more data
     /// let wifi_interfaces = socket.get_interfaces_info().await?;
     /// for wifi_interface in wifi_interfaces {
