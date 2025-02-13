@@ -37,13 +37,13 @@ impl TryFrom<Attrs<'_, Nl80211Attr>> for Station {
     fn try_from(attrs: Attrs<'_, Nl80211Attr>) -> Result<Self, Self::Error> {
         let mut res = Self::default();
         if let Some(bssid) = attrs.get_attribute(Nl80211Attr::AttrMac) {
-            res.bssid = Some(Vec::from(bssid.nla_payload.as_ref()));
+            res.bssid = Some(Vec::from(bssid.nla_payload().as_ref()));
         }
 
         if let Some(info) = attrs.get_attribute(Nl80211Attr::AttrStaInfo) {
             let attrs = info.get_attr_handle::<Nl80211StaInfo>().unwrap();
             for attr in attrs.iter() {
-                match attr.nla_type.nla_type {
+                match attr.nla_type().nla_type() {
                     Nl80211StaInfo::StaInfoSignal => res.signal = Some(attr.get_payload_as()?),
                     Nl80211StaInfo::StaInfoSignalAvg => {
                         res.average_signal = Some(attr.get_payload_as()?)
@@ -94,19 +94,21 @@ mod tests_station {
     use crate::attr::Nl80211Attr::AttrMac;
     use crate::attr::Nl80211Attr::AttrStaInfo;
     use neli::attr::AttrHandle;
-    use neli::genl::{AttrType, Nlattr};
+    use neli::genl::{AttrTypeBuilder, Nlattr, NlattrBuilder};
     use neli::types::Buffer;
 
     fn new_attr(t: Nl80211Attr, d: Vec<u8>) -> Nlattr<Nl80211Attr, Buffer> {
-        Nlattr {
-            nla_len: (4 + d.len()) as _,
-            nla_type: AttrType {
-                nla_nested: false,
-                nla_network_order: true,
-                nla_type: t,
-            },
-            nla_payload: d.into(),
-        }
+        NlattrBuilder::default()
+            .nla_type(
+                AttrTypeBuilder::default()
+                    .nla_network_order(true)
+                    .nla_type(t)
+                    .build()
+                    .expect("Error constructing test attribute type {t:?}"),
+            )
+            .nla_payload(d)
+            .build()
+            .expect("Error constructing test attribute {t:?} with payload {d:?}")
     }
 
     #[test]

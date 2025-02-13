@@ -5,7 +5,7 @@ use std::error::Error;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let mut socket = AsyncSocket::connect()?;
+    let mut socket = AsyncSocket::connect().await?;
 
     for interface in socket.get_interfaces_info().await? {
         dbg!(&interface);

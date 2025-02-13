@@ -1,6 +1,6 @@
 [package]
 name = "neli-wifi"
-version = "0.6.0"
+version = "0.7.0"
 authors = ["eonm <eon.mathis@gmail.com>", "Max Verevkin <maxxverrr@gmail.com>"]
 edition = "2021"
 description = "Communicate with nl80211"
@@ -13,8 +13,8 @@ default = []
 async = ["neli/async"]
 
 [dependencies]
-neli = "0.6.0"
-neli-proc-macros = "0.1.0"
+neli = { version = "0.7.0-rc3", git = "https://github.com/jbaublitz/neli.git" }
+neli-proc-macros = { version = "0.2.0-rc3", git = "https://github.com/jbaublitz/neli.git" }
 
 [dev-dependencies]
 neli-wifi = { path = ".", features = ["async"] }

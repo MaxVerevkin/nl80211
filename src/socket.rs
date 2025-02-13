@@ -5,24 +5,24 @@ use crate::interface::Interface;
 use crate::station::Station;
 use crate::{Attrs, NL_80211_GENL_NAME, NL_80211_GENL_VERSION};
 
-use neli::consts::genl::{CtrlAttr, CtrlCmd};
-use neli::consts::{nl::GenlId, nl::NlmF, nl::NlmFFlags, nl::Nlmsg, socket::NlFamily};
-use neli::err::{DeError, NlError};
-use neli::genl::{Genlmsghdr, Nlattr};
+use neli::consts::{nl::GenlId, nl::NlmF, socket::NlFamily};
+use neli::err::DeError;
+use neli::genl::{AttrTypeBuilder, Genlmsghdr, GenlmsghdrBuilder, NlattrBuilder};
 use neli::nl::{NlPayload, Nlmsghdr};
-use neli::socket::NlSocketHandle;
+use neli::router::synchronous::NlRouter;
 use neli::types::GenlBuffer;
+use neli::utils::Groups;
 
 /// A generic netlink socket to send commands and receive messages
 pub struct Socket {
-    pub(crate) sock: NlSocketHandle,
+    pub(crate) sock: NlRouter,
     pub(crate) family_id: u16,
 }
 
 impl Socket {
     /// Create a new nl80211 socket with netlink
-    pub fn connect() -> Result<Self, NlError<GenlId, Genlmsghdr<CtrlCmd, CtrlAttr>>> {
-        let mut sock = NlSocketHandle::connect(NlFamily::Generic, None, &[])?;
+    pub fn connect() -> Result<Self, Box<dyn std::error::Error>> {
+        let (sock, _) = NlRouter::connect(NlFamily::Generic, None, Groups::empty())?;
         let family_id = sock.resolve_genl_family(NL_80211_GENL_NAME)?;
         Ok(Self { sock, family_id })
     }
@@ -31,52 +31,47 @@ impl Socket {
         &mut self,
         interface_index: Option<i32>,
         cmd: Nl80211Cmd,
-    ) -> Result<Vec<T>, NlError>
+    ) -> Result<Vec<T>, Box<dyn std::error::Error>>
     where
         T: for<'a> TryFrom<Attrs<'a, Nl80211Attr>, Error = DeError>,
     {
-        let msghdr = Genlmsghdr::<Nl80211Cmd, Nl80211Attr>::new(cmd, NL_80211_GENL_VERSION, {
-            let mut attrs = GenlBuffer::new();
-            if let Some(interface_index) = interface_index {
-                attrs.push(
-                    Nlattr::new(false, false, Nl80211Attr::AttrIfindex, interface_index).unwrap(),
-                );
-            }
-            attrs
-        });
-
-        let nlhdr = {
-            let len = None;
-            let nl_type = self.family_id;
-            let flags = NlmFFlags::new(&[NlmF::Request, NlmF::Dump]);
-            let seq = None;
-            let pid = None;
-            let payload = NlPayload::Payload(msghdr);
-            Nlmsghdr::new(len, nl_type, flags, seq, pid, payload)
+        let mut attrs = GenlBuffer::new();
+        if let Some(interface_index) = interface_index {
+            let attrtype = AttrTypeBuilder::default()
+                .nla_type(Nl80211Attr::AttrIfindex)
+                .build()
+                .unwrap();
+            let nlattr = NlattrBuilder::default()
+                .nla_type(attrtype)
+                .nla_payload(interface_index)
+                .build()
+                .unwrap();
+            attrs.push(nlattr);
         };
+        let msghdr = GenlmsghdrBuilder::<Nl80211Cmd, Nl80211Attr>::default()
+            .cmd(cmd)
+            .version(NL_80211_GENL_VERSION)
+            .attrs(attrs)
+            .build()
+            .unwrap();
 
-        self.sock.send(nlhdr)?;
-
-        let iter = self
+        let recv = self
             .sock
-            .iter::<Nlmsg, Genlmsghdr<Nl80211Cmd, Nl80211Attr>>(false);
+            .send::<_, _, GenlId, Genlmsghdr<Nl80211Cmd, Nl80211Attr>>(
+                self.family_id,
+                NlmF::DUMP,
+                NlPayload::Payload(msghdr),
+            )?;
 
         let mut retval = Vec::new();
 
-        for response in iter {
-            let response = response.unwrap();
-            match response.nl_type {
-                Nlmsg::Noop => (),
-                Nlmsg::Error => panic!("Error"),
-                Nlmsg::Done => break,
-                _ => retval.push(
-                    response
-                        .nl_payload
-                        .get_payload()
-                        .unwrap()
-                        .get_attr_handle()
-                        .try_into()?,
-                ),
+        for response in recv {
+            let header: Nlmsghdr<GenlId, Genlmsghdr<Nl80211Cmd, Nl80211Attr>> = response.unwrap();
+            if header.nl_type() == &GenlId::UnrecognizedConst(self.family_id) {
+                if let NlPayload::Payload(p) = header.nl_payload() {
+                    let attrs = p.attrs().get_attr_handle().try_into()?;
+                    retval.push(attrs);
+                }
             }
         }
 
@@ -98,7 +93,7 @@ impl Socket {
     /// #   Ok(())
     /// # }
     ///```
-    pub fn get_interfaces_info(&mut self) -> Result<Vec<Interface>, NlError> {
+    pub fn get_interfaces_info(&mut self) -> Result<Vec<Interface>, Box<dyn std::error::Error>> {
         self.get_info_vec(None, Nl80211Cmd::CmdGetInterface)
     }
 
@@ -123,16 +118,22 @@ impl Socket {
     /// #   Ok(())
     /// # }
     ///```
-    pub fn get_station_info(&mut self, interface_index: i32) -> Result<Vec<Station>, NlError> {
+    pub fn get_station_info(
+        &mut self,
+        interface_index: i32,
+    ) -> Result<Vec<Station>, Box<dyn std::error::Error>> {
         self.get_info_vec(Some(interface_index), Nl80211Cmd::CmdGetStation)
     }
 
-    pub fn get_bss_info(&mut self, interface_index: i32) -> Result<Vec<Bss>, NlError> {
+    pub fn get_bss_info(
+        &mut self,
+        interface_index: i32,
+    ) -> Result<Vec<Bss>, Box<dyn std::error::Error>> {
         self.get_info_vec(Some(interface_index), Nl80211Cmd::CmdGetScan)
     }
 }
 
-impl From<Socket> for NlSocketHandle {
+impl From<Socket> for NlRouter {
     /// Returns the underlying generic netlink socket
     fn from(sock: Socket) -> Self {
         sock.sock

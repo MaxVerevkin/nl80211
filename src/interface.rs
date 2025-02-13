@@ -33,7 +33,7 @@ impl TryFrom<Attrs<'_, Nl80211Attr>> for Interface {
     fn try_from(attrs: Attrs<'_, Nl80211Attr>) -> Result<Self, Self::Error> {
         let mut res = Self::default();
         for attr in attrs.iter() {
-            match attr.nla_type.nla_type {
+            match attr.nla_type().nla_type() {
                 Nl80211Attr::AttrIfindex => {
                     res.index = Some(attr.get_payload_as()?);
                 }
@@ -69,19 +69,21 @@ mod test_interface {
     use super::*;
     use crate::attr::Nl80211Attr::*;
     use neli::attr::AttrHandle;
-    use neli::genl::{AttrType, Nlattr};
+    use neli::genl::{AttrTypeBuilder, Nlattr, NlattrBuilder};
     use neli::types::Buffer;
 
     fn new_attr(t: Nl80211Attr, d: Vec<u8>) -> Nlattr<Nl80211Attr, Buffer> {
-        Nlattr {
-            nla_len: (4 + d.len()) as _,
-            nla_type: AttrType {
-                nla_nested: false,
-                nla_network_order: true,
-                nla_type: t,
-            },
-            nla_payload: d.into(),
-        }
+        NlattrBuilder::default()
+            .nla_type(
+                AttrTypeBuilder::default()
+                    .nla_network_order(true)
+                    .nla_type(t)
+                    .build()
+                    .expect("Error constructing test attribute type {t:?}"),
+            )
+            .nla_payload(d)
+            .build()
+            .expect("Error constructing test attribute {t:?} with payload {d:?}")
     }
 
     #[test]
